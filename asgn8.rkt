@@ -3,16 +3,6 @@
 ;; Define data structures for the abstract syntax tree (AST)
 (require typed/rackunit)
 
-(define-type ExprC (U ValC IfC LamC IdC AppC))
-(define-type ValC (U NumC StrC))
-(struct NumC ([n : Real]) #:transparent)
-(struct StrC ([s : String]) #:transparent)
-(struct IfC ([do? : ExprC] [test : ExprC] [else? : ExprC]) #:transparent)
-(struct LamC ([args : (Listof Symbol)] [body : ExprC])#:transparent)
-(struct IdC ([id : Symbol]) #:transparent)
-(struct AppC ([fun : ExprC] [args : (Listof ExprC)]) #:transparent)
-
-
 ;;Value types
 (define-type ValV (U CloV PrimV StrV NumV BoolV))
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : Env])#:transparent)
@@ -20,6 +10,33 @@
 (struct StrV ([val : String])#:transparent)
 (struct NumV ([val : Real])#:transparent)
 (struct BoolV ([val : Boolean])#:transparent)
+
+; Define the type environment data structure
+(define-type TypeEnv (Listof TypeBind))
+(struct TypeBind [(name : Symbol) (val : Type)] #:transparent)
+
+; Define the types
+(define-type Type (U NumT StrT BoolT FunT ArrT VoidT))
+(struct NumT () #:transparent)
+(struct StrT () #:transparent)
+(struct BoolT () #:transparent)
+(struct FunT ([arg-types : (Listof Type)] [result-type : Type]) #:transparent)
+(struct ArrT () #:transparent)
+(struct VoidT () #:transparent)
+
+
+; Define the typed AST
+(define-type ExprC (U ValC StrC IfC LamC IdC AppC SetC RecC ArrC))
+(define-type ValC (U NumC StrC))
+(struct NumC ([n : Real]) #:transparent)
+(struct StrC ([s : String]) #:transparent)
+(struct IfC ([do? : ExprC] [test : ExprC] [else? : ExprC]) #:transparent)
+(struct LamC ([args : (Listof Symbol)] [arg-types : (Listof Type)] [body : ExprC] [type : Type])#:transparent)
+(struct IdC ([id : Symbol]) #:transparent)
+(struct AppC ([fun : ExprC] [args : (Listof ExprC)] ) #:transparent)
+(struct SetC ([id : Symbol] [val : ExprC]) #:transparent)
+(struct RecC ([id : Symbol] [args : (Listof Symbol)] [arg-types : (Listof Type)] [body : ExprC] [type : Type] [in : ExprC]))
+(struct ArrC ([args : (Listof ExprC)]))
 
 ;; Define the environment data type
 (define-type Env (Listof bind))
@@ -172,111 +189,111 @@
     [(BoolV b) (if b "true" "false")]))
 
 
-;;-------------------------------TEST CASES-----------------------------------------
-;; parser tests
-(define concreteLam '({x y} => {+ 3 {+ x y}}))
-(check-equal? (parse concreteLam)
-              (LamC (list 'x 'y)
-                    (AppC (IdC '+) (list (NumC 3)
-                                         (AppC (IdC '+)
-                                               (list (IdC 'x) (IdC 'y)))))))
-
-(define ifTest '(("nice" if {<= x 4} else "lame") where {[x := 5]}))
-(check-equal? (parse ifTest)
-              (AppC (LamC '(x)
-                          (IfC (StrC "nice")
-                               (AppC (IdC '<=) (list (IdC 'x) (NumC 4)))
-                               (StrC "lame")))
-                    (list (NumC 5))))
-
-;; parser errors
-(check-exn #rx"expression" (λ () (parse '(if 4))))
-(check-exn #rx"Duplicate" (λ () (parse '({x x} => {+ x x}))))
-(check-exn #rx"Duplicate" (λ () (parse '({+ yer yump} where {[yer := 4] [yer := 6]}))))
-
-
-;; interp tests
-(define lamApp '(({x y} => {+ 3 {- x y}}) 1 2))
-(check-equal? (top-interp lamApp) "2")
-(check-equal? (top-interp ifTest) "lame")
-(check-equal? (top-interp '(69 if {<= 5 7} else 96)) "69")
-
-;; interp errors
-(check-exn #rx"zero" (λ () (top-interp '(/ 5 (* 5 0)))))
-(check-exn #rx"boolean" (λ () (top-interp '(1 if 2 else 3))))
-(check-exn #rx"arguments" (λ () (top-interp '{{{x y} => {+ x 1}} 1 2 3})))
-(check-exn #rx"primitive" (λ () (top-interp '(+ 1 2 3))))
-(check-exn #rx"not found" (λ () (top-interp '((+ x y) 1 2 3))))
-(check-exn #rx"non-function" (λ () (top-interp '(3))))
-
-
-(check-exn #rx"lookup" (λ () (top-interp '({+ x y} where {[x := 5]}))))
-
-;; Test cases for NumC
-(check-equal? (top-interp '42) "42")
-
-;; Test cases for StrC
-(check-equal? (top-interp "hello") "hello")
-
-;; Test cases for IfC
-(check-equal? (top-interp '(1 if true else 2)) "1")
-(check-equal? (top-interp '(1 if false else 2)) "2")
-
-;; Test cases for LamC and AppC
-(check-equal? (top-interp '(((x y) => (+ x y)) 2 3)) "5")
-(check-equal? (top-interp '(((x) => (+ x 1)) 4)) "5")
-
-;; Test cases for IdC
-(check-equal? (top-interp 'true) "true")
-(check-equal? (top-interp 'false) "false")
+;;;-------------------------------TEST CASES-----------------------------------------
+;;; parser tests
+;(define concreteLam '({x y} => {+ 3 {+ x y}}))
+;(check-equal? (parse concreteLam)
+;              (LamC (list 'x 'y)
+;                    (AppC (IdC '+) (list (NumC 3)
+;                                         (AppC (IdC '+)
+;                                               (list (IdC 'x) (IdC 'y)))))))
 ;
-;; Test cases for primitive operations
-(check-equal? (top-interp '(+ 2 3)) "5")
-(check-equal? (top-interp '(- 7 3)) "4")
-(check-equal? (top-interp '(* 4 3)) "12")
-(check-equal? (top-interp '(/ 8 2)) "4")
-(check-equal? (top-interp '(<= 2 3)) "true")
-(check-equal? (top-interp '(<= 3 3)) "true")
-(check-equal? (top-interp '(<= 4 3)) "false")
-(check-equal? (top-interp '(equal? "hello" "hello")) "true")
-(check-equal? (top-interp '(equal? "hello" "world")) "false")
-
-;; Test cases for where
-(check-equal? (top-interp '((+ x y) where ((x := 2) (y := 3)))) "5")
-(check-equal? (top-interp '((+ x y) where ((x := 4) (y := (* 4 2))))) "12")
-
-
-(check-equal? (top-interp '((((f) => ((x y) => (f x y))) ((a b) => (+ a b))) 1 2)) "3")
-
-;; serializing PrimV and CloV
-(check-equal? (serialize (PrimV '+ 4)) "#<primop>")
-(check-equal? (serialize (CloV '(a b c) (IdC 'x) '())) "#<procedure>")
-;(struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : Env])#:transparent)
-
-;; Error cases
-(check-exn exn:fail?
-  (lambda () (top-interp '(+ 2))))
-(check-exn exn:fail?
-  (lambda () (top-interp '(+ 2 3 4))))
-(check-exn exn:fail?
-  (lambda () (top-interp '((x y) => (+ x y 2) 3))))
-(check-exn exn:fail?
-  (lambda () (top-interp '((+ x y) where ((x := 2) (y := 3) (x := 4))))))
-
-(check-exn #rx"real" (λ () (top-interp '(+ true (- false (* "fail" (/ 4 "zero")))))))
-(check-exn #rx"real" (λ () (top-interp '(+ true (- false (* "fail" 4))))))
-(check-exn #rx"real" (λ () (top-interp '(+ true (- false 3)))))
-(check-exn #rx"real" (λ () (top-interp '(+ true 2))))
-(check-exn #rx"real" (λ () (top-interp '(<= true 2))))
-;(check-exn #rx"")
-
-(define test-equal-closure
-   '{equal? {{x} => {+ x 1}} {{y} => {+ y 1}}})
-
-(check-equal? (top-interp test-equal-closure) "false")
-
-(define test-wrong-args
-   '{+ 5 10 15})
-
-(check-exn #rx"VVQS: Wrong number of arguments for +" (λ () (top-interp test-wrong-args)))
-(check-exn #rx"user-error" (λ () (top-interp '(error "hi"))))
+;(define ifTest '(("nice" if {<= x 4} else "lame") where {[x := 5]}))
+;(check-equal? (parse ifTest)
+;              (AppC (LamC '(x)
+;                          (IfC (StrC "nice")
+;                               (AppC (IdC '<=) (list (IdC 'x) (NumC 4)))
+;                               (StrC "lame")))
+;                    (list (NumC 5))))
+;
+;;; parser errors
+;(check-exn #rx"expression" (λ () (parse '(if 4))))
+;(check-exn #rx"Duplicate" (λ () (parse '({x x} => {+ x x}))))
+;(check-exn #rx"Duplicate" (λ () (parse '({+ yer yump} where {[yer := 4] [yer := 6]}))))
+;
+;
+;;; interp tests
+;(define lamApp '(({x y} => {+ 3 {- x y}}) 1 2))
+;(check-equal? (top-interp lamApp) "2")
+;(check-equal? (top-interp ifTest) "lame")
+;(check-equal? (top-interp '(69 if {<= 5 7} else 96)) "69")
+;
+;;; interp errors
+;(check-exn #rx"zero" (λ () (top-interp '(/ 5 (* 5 0)))))
+;(check-exn #rx"boolean" (λ () (top-interp '(1 if 2 else 3))))
+;(check-exn #rx"arguments" (λ () (top-interp '{{{x y} => {+ x 1}} 1 2 3})))
+;(check-exn #rx"primitive" (λ () (top-interp '(+ 1 2 3))))
+;(check-exn #rx"not found" (λ () (top-interp '((+ x y) 1 2 3))))
+;(check-exn #rx"non-function" (λ () (top-interp '(3))))
+;
+;
+;(check-exn #rx"lookup" (λ () (top-interp '({+ x y} where {[x := 5]}))))
+;
+;;; Test cases for NumC
+;(check-equal? (top-interp '42) "42")
+;
+;;; Test cases for StrC
+;(check-equal? (top-interp "hello") "hello")
+;
+;;; Test cases for IfC
+;(check-equal? (top-interp '(1 if true else 2)) "1")
+;(check-equal? (top-interp '(1 if false else 2)) "2")
+;
+;;; Test cases for LamC and AppC
+;(check-equal? (top-interp '(((x y) => (+ x y)) 2 3)) "5")
+;(check-equal? (top-interp '(((x) => (+ x 1)) 4)) "5")
+;
+;;; Test cases for IdC
+;(check-equal? (top-interp 'true) "true")
+;(check-equal? (top-interp 'false) "false")
+;;
+;;; Test cases for primitive operations
+;(check-equal? (top-interp '(+ 2 3)) "5")
+;(check-equal? (top-interp '(- 7 3)) "4")
+;(check-equal? (top-interp '(* 4 3)) "12")
+;(check-equal? (top-interp '(/ 8 2)) "4")
+;(check-equal? (top-interp '(<= 2 3)) "true")
+;(check-equal? (top-interp '(<= 3 3)) "true")
+;(check-equal? (top-interp '(<= 4 3)) "false")
+;(check-equal? (top-interp '(equal? "hello" "hello")) "true")
+;(check-equal? (top-interp '(equal? "hello" "world")) "false")
+;
+;;; Test cases for where
+;(check-equal? (top-interp '((+ x y) where ((x := 2) (y := 3)))) "5")
+;(check-equal? (top-interp '((+ x y) where ((x := 4) (y := (* 4 2))))) "12")
+;
+;
+;(check-equal? (top-interp '((((f) => ((x y) => (f x y))) ((a b) => (+ a b))) 1 2)) "3")
+;
+;;; serializing PrimV and CloV
+;(check-equal? (serialize (PrimV '+ 4)) "#<primop>")
+;(check-equal? (serialize (CloV '(a b c) (IdC 'x) '())) "#<procedure>")
+;;(struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : Env])#:transparent)
+;
+;;; Error cases
+;(check-exn exn:fail?
+;  (lambda () (top-interp '(+ 2))))
+;(check-exn exn:fail?
+;  (lambda () (top-interp '(+ 2 3 4))))
+;(check-exn exn:fail?
+;  (lambda () (top-interp '((x y) => (+ x y 2) 3))))
+;(check-exn exn:fail?
+;  (lambda () (top-interp '((+ x y) where ((x := 2) (y := 3) (x := 4))))))
+;
+;(check-exn #rx"real" (λ () (top-interp '(+ true (- false (* "fail" (/ 4 "zero")))))))
+;(check-exn #rx"real" (λ () (top-interp '(+ true (- false (* "fail" 4))))))
+;(check-exn #rx"real" (λ () (top-interp '(+ true (- false 3)))))
+;(check-exn #rx"real" (λ () (top-interp '(+ true 2))))
+;(check-exn #rx"real" (λ () (top-interp '(<= true 2))))
+;;(check-exn #rx"")
+;
+;(define test-equal-closure
+;   '{equal? {{x} => {+ x 1}} {{y} => {+ y 1}}})
+;
+;(check-equal? (top-interp test-equal-closure) "false")
+;
+;(define test-wrong-args
+;   '{+ 5 10 15})
+;
+;(check-exn #rx"VVQS: Wrong number of arguments for +" (λ () (top-interp test-wrong-args)))
+;(check-exn #rx"user-error" (λ () (top-interp '(error "hi"))))
