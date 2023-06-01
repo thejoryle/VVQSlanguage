@@ -26,7 +26,7 @@
 
 
 ; Define the typed AST
-(define-type ExprC (U ValC StrC IfC LamC IdC AppC SetC RecC ArrC))
+(define-type ExprC (U ValC IfC LamC IdC AppC SetC RecC ArrC))
 (define-type ValC (U NumC StrC))
 (struct NumC ([n : Real]) #:transparent)
 (struct StrC ([s : String]) #:transparent)
@@ -42,6 +42,25 @@
 (define-type Env (Listof bind))
 (struct bind[(name : Symbol) (val : ValV)] #:transparent)
 (define mt-env empty)
+
+;; The type checker for VVQS8. Recursively evaluates the type of an exprC and, if successful,
+;; does nothing. If an expression isn't correctly typed, it raises the appropriate error.
+(define (typecheck [expr : ExprC] [tenv : TypeEnv]) : Type
+  (match expr
+    [(NumC n) (NumT)]
+    [(StrC s) (StrT)]
+    [(IfC do test else) (typecheck do tenv)
+                        (if (BoolT? (typecheck test tenv))
+                            BoolT
+                            (error 'typechecker "VVQS: if then test case must return a boolean"))
+                        (typecheck else tenv)]
+    [(IdC id) (t-lookup id tenv)]
+    [(SetC id val) (define var-type (t-lookup id tenv))
+                   (if (equal? var-type (typecheck val tenv))
+                       var-type
+                       (error 'typechecker "VVQS: cannot assign val of different type to var"))]
+    #;[(LamC args arg-types body return-type) ()]))
+
 
 ;; updated bad ID names for VVQS5
 (define badsyms
@@ -62,82 +81,90 @@
 ;; Define the lookup function for environments
 (define (lookup [for : Symbol] [env : Env]) : ValV
   (match env
-    [(list) (error 'lookup "VVQS: name not found")]
+    [(list) (error 'lookup "VVQS: name not found in environment")]
     [(cons (bind name val) rest-env)
      (if (symbol=? for name)
          val
          (lookup for rest-env))]))
 
+;; Lookup function for the type environment
+(define (t-lookup [for : Symbol] [tenv : TypeEnv]) : Type
+  (match tenv
+    [(list) (error 'lookup "VVQS: name not found in type environment")]
+    [(cons (TypeBind name type) rest-env)
+     (if (symbol=? for name)
+         type
+         (t-lookup for rest-env))]))
 
-;; Implement the top-interp function
-(define (top-interp [prog-sexp : Sexp])
-  ;; Define the top-level environment
-  (define top-env
-    (list (bind '+ (PrimV '+ 2))
-          (bind '- (PrimV '- 2))
-          (bind '* (PrimV '* 2))
-          (bind '/ (PrimV '/ 2))
-          (bind '<= (PrimV '<= 2))
-          (bind 'equal? (PrimV 'equal? 2))
-          (bind 'true (BoolV #t))
-          (bind 'false (BoolV #f))
-          (bind 'error (PrimV 'error 1))))
-  (serialize (interp (parse prog-sexp) top-env)))
+;;; Implement the top-interp function
+;(define (top-interp [prog-sexp : Sexp])
+;  ;; Define the top-level environment
+;  (define top-env
+;    (list (bind '+ (PrimV '+ 2))
+;          (bind '- (PrimV '- 2))
+;          (bind '* (PrimV '* 2))
+;          (bind '/ (PrimV '/ 2))
+;          (bind '<= (PrimV '<= 2))
+;          (bind 'equal? (PrimV 'equal? 2))
+;          (bind 'true (BoolV #t))
+;          (bind 'false (BoolV #f))
+;          (bind 'error (PrimV 'error 1))))
+;  (serialize (interp (parse prog-sexp) top-env)))
 
-;; main VVQS parsing function
-;; parse converts an S-expression into an ExprC (AST)
-;; Modify the parse function according to the new ExprC definition
-;; Parse an S-expression into an ExprC
-(define (parse [sexp : Sexp]) : ExprC
-  (match sexp
-    [(? real? n) (NumC n)]
-    [(? symbol? (? ValidSymbol? s)) (IdC s)]
-    [(? string? s) (StrC s)]
-    [(list body 'if test 'else else)
-     (IfC (parse body) (parse test) (parse else))]
-    [(list body 'where (list (list (? symbol? (? ValidSymbol? bindings)) ':= exp) ...))
-     (if (= (length bindings) (length (remove-duplicates bindings)))
-           (AppC (LamC (cast bindings (Listof Symbol)) (parse body))
-                 (map parse (cast exp (Listof Sexp))))
-           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
-    [(list (list (? symbol? (? ValidSymbol? args)) ...) '=> body)
-       (if (= (length args) (length (remove-duplicates args)))
-           (LamC (cast args (Listof Symbol)) (parse body))
-           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
-    [(list e ...)
-     (match e
-       [(cons f r) (AppC (parse f) (map parse r))])]
-    [else (error 'parse "VVQS: Invalid expression")]))
+;;; main VVQS parsing function
+;;; parse converts an S-expression into an ExprC (AST)
+;;; Modify the parse function according to the new ExprC definition
+;;; Parse an S-expression into an ExprC
+;(define (parse [sexp : Sexp]) : ExprC
+;  (match sexp
+;    [(? real? n) (NumC n)]
+;    [(? symbol? (? ValidSymbol? s)) (IdC s)]
+;    [(? string? s) (StrC s)]
+;    [(list body 'if test 'else else)
+;     (IfC (parse body) (parse test) (parse else))]
+;    [(list body 'where (list (list (? symbol? (? ValidSymbol? bindings)) ':= exp) ...))
+;     (if (= (length bindings) (length (remove-duplicates bindings)))
+;           (AppC (LamC (cast bindings (Listof Symbol)) (parse body))
+;                 (map parse (cast exp (Listof Sexp))))
+;           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
+;    [(list (list (? symbol? (? ValidSymbol? args)) ...) '=> body)
+;       (if (= (length args) (length (remove-duplicates args)))
+;           (LamC (cast args (Listof Symbol)) (parse body))
+;           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
+;    [(list e ...)
+;     (match e
+;       [(cons f r) (AppC (parse f) (map parse r))])]
+;    [else (error 'parse "VVQS: Invalid expression")]))
 
-;;updated interp function to handle VVQS5, supports enviorments
-(define (interp [expr : ExprC] [env : Env]) : ValV
-  (match expr
-    [(NumC n) (NumV n)]
-    [(StrC s) (StrV s)]
-    [(IfC do? test else?)
-     (define test-result (interp test env))
-     (match test-result
-       [(BoolV #t) (interp do? env)]
-       [(BoolV #f) (interp else? env)]
-       [else (error 'interp "VVQS: Test expression in if must return a boolean")])]
-    [(LamC args body) (CloV args body env)]
-    [(IdC id)
-     (lookup id env)]
-    [(AppC fun args)
-     (define func-val (interp fun env))
-     (define arg-values (map (λ (arg) (interp (cast arg ExprC) env)) args))
-     (match func-val
-       [(CloV params body closure-env)
-        (if (= (length params) (length arg-values))
-            (let ([extended-env (append (map (λ (param arg) (bind (cast param Symbol)
-                                                                  (cast arg ValV))) params arg-values) closure-env)])
-              (interp body extended-env))
-            (error 'interp (format "VVQS: Wrong number of arguments in application")))]
-       [(PrimV name arity)
-        (if (= arity (length arg-values))
-            (apply-prim func-val arg-values env)
-            (error 'interp (format "VVQS: Wrong number of arguments for primitive ~a" name)))]
-       [else (error 'interp "VVQS: Attempted to apply non-function value")])]))
+;;;updated interp function to handle VVQS5, supports enviorments
+;(define (interp [expr : ExprC] [env : Env]) : ValV
+;  (match expr
+;    [(NumC n) (NumV n)]
+;    [(StrC s) (StrV s)]
+;    [(IfC do? test else?)
+;     (define test-result (interp test env))
+;     (match test-result
+;       [(BoolV #t) (interp do? env)]
+;       [(BoolV #f) (interp else? env)]
+;       [else (error 'interp "VVQS: Test expression in if must return a boolean")])]
+;    [(LamC args body) (CloV args body env)]
+;    [(IdC id)
+;     (lookup id env)]
+;    [(AppC fun args)
+;     (define func-val (interp fun env))
+;     (define arg-values (map (λ (arg) (interp (cast arg ExprC) env)) args))
+;     (match func-val
+;       [(CloV params body closure-env)
+;        (if (= (length params) (length arg-values))
+;            (let ([extended-env (append (map (λ (param arg) (bind (cast param Symbol)
+;                                                                  (cast arg ValV))) params arg-values) closure-env)])
+;              (interp body extended-env))
+;            (error 'interp (format "VVQS: Wrong number of arguments in application")))]
+;       [(PrimV name arity)
+;        (if (= arity (length arg-values))
+;            (apply-prim func-val arg-values env)
+;            (error 'interp (format "VVQS: Wrong number of arguments for primitive ~a" name)))]
+;       [else (error 'interp "VVQS: Attempted to apply non-function value")])]))
 
 ;; Apply a primitive operation based on its name
 (: apply-prim (PrimV (Listof ValV) Env -> ValV))
