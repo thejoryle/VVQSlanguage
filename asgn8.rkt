@@ -26,7 +26,7 @@
 
 
 ; Define the typed AST
-(define-type ExprC (U ValC IfC LamC IdC AppC SetC RecC ArrC))
+(define-type ExprC (U ValC IfC LamC IdC AppC SetC RecC ArrC BegC))
 (define-type ValC (U NumC StrC))
 (struct NumC ([n : Real]) #:transparent)
 (struct StrC ([s : String]) #:transparent)
@@ -38,7 +38,9 @@
 (struct SetC ([id : Symbol] [val : ExprC]) #:transparent)
 (struct RecC ([id : Symbol] [args : (Listof Symbol)] [arg-types : (Listof Type)]
                             [body : ExprC] [type : Type] [in : ExprC]) #:transparent)
+(struct BegC ([args : (Listof ExprC)]) #:transparent)
 (struct ArrC ([args : (Listof ExprC)]) #:transparent)
+
 
 ;; Define the environment data type
 (define-type Env (Listof bind))
@@ -100,9 +102,9 @@
        ['void (VoidT)]
        ['numarray (ArrT)]
        [else (error 'parse-type (format "VVQS: Invalid type: ~a" sym))])]
-    [(list '-> arg-types result-type)
-     (FunT (parse-types arg-types) (parse-type result-type))]
-    [else (error 'parse-type "VVQS: Invalid type")]))
+    [(list arg-types ... '-> result-type)
+     (FunT (parse-types (cast arg-types (Listof Sexp))) (parse-type result-type))]
+    [else (error 'parse-type (format "VVQS: Invalid type: ~a" sexp))]))
 
 ;; Helper function to parse a list of types
 (define (parse-types [sexps : (Listof Sexp)]) : (Listof Type)
@@ -169,15 +171,20 @@
     [(list (? symbol? (? ValidSymbol? id)) '<- val) (SetC id (parse val))]
     [(list body 'if test 'else else)
      (IfC (parse body) (parse test) (parse else))]
-    [(list body 'where (list (list (? symbol? (? ValidSymbol? bindings)) ':= exp) ...))
+    [(list body 'where (list (list (list (? symbol? (? ValidSymbol? bindings)) ': ty) ':= exp) ...))
      (if (= (length bindings) (length (remove-duplicates bindings)))
-           (AppC (LamC (cast bindings (Listof Symbol)) (parse body))
+           (AppC (LamC (cast bindings (Listof Symbol)) (parse-types (cast ty (Listof Sexp))) (parse body))
                  (map parse (cast exp (Listof Sexp))))
            (error 'parse "VVQS: Duplicate parameter names in function definition"))]
-    [(list (list (? symbol? (? ValidSymbol? args)) ...) '=> body)
+    [(list (list (list (? symbol? (? ValidSymbol? args)) ': ty) ...) '=> body)
        (if (= (length args) (length (remove-duplicates args)))
-           (LamC (cast args (Listof Symbol)) (parse body))
+           (LamC (cast args (Listof Symbol)) (parse-types (cast ty (Listof Sexp))) (parse body))
            (error 'parse "VVQS: Duplicate parameter names in function definition"))]
+    [(list 'letrec (list (? symbol? (? ValidSymbol? name))
+                         (list (list (? symbol? (? ValidSymbol? ids)) ': ty) ...) ': ret-ty '=> body) 'in in)
+     (RecC name (cast ids (Listof Symbol)) (parse-types (cast ty (Listof Sexp))) (parse body) (parse-type ret-ty) (parse in))]
+    [(list 'begin exp ...) (BegC (map parse exp))]
+    [(list 'makearr exp ...) (ArrC (map parse exp))]
     [(list e ...)
      (match e
        [(cons f r) (AppC (parse f) (map parse r))])]
