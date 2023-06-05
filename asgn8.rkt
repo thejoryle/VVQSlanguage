@@ -86,6 +86,26 @@
             (typecheck-lam-helper pr ar tenv)
             #f)])]))
 
+
+;; Helper function to parse types
+(define (parse-type [sexp : Sexp]) : Type
+  (match sexp
+    [(? symbol? (? ValidSymbol? sym))
+     (case sym
+       ['num (NumT)]
+       ['bool (BoolT)]
+       ['str (StrT)]
+       ['void (VoidT)]
+       ['numarray (ArrT)]
+       [else (error 'parse-type (format "VVQS: Invalid type: ~a" sym))])]
+    [(list '-> arg-types result-type)
+     (FunT (parse-types arg-types) (parse-type result-type))]
+    [else (error 'parse-type "VVQS: Invalid type")]))
+
+;; Helper function to parse a list of types
+(define (parse-types [sexps : (Listof Sexp)]) : (Listof Type)
+  (map parse-type sexps))
+
 ;; updated bad ID names for VVQS5
 (define badsyms
   (hash
@@ -135,30 +155,31 @@
 ;          (bind 'error (PrimV 'error 1))))
 ;  (serialize (interp (parse prog-sexp) top-env)))
 
-;;; main VVQS parsing function
-;;; parse converts an S-expression into an ExprC (AST)
-;;; Modify the parse function according to the new ExprC definition
-;;; Parse an S-expression into an ExprC
-;(define (parse [sexp : Sexp]) : ExprC
-;  (match sexp
-;    [(? real? n) (NumC n)]
-;    [(? symbol? (? ValidSymbol? s)) (IdC s)]
-;    [(? string? s) (StrC s)]
-;    [(list body 'if test 'else else)
-;     (IfC (parse body) (parse test) (parse else))]
-;    [(list body 'where (list (list (? symbol? (? ValidSymbol? bindings)) ':= exp) ...))
-;     (if (= (length bindings) (length (remove-duplicates bindings)))
-;           (AppC (LamC (cast bindings (Listof Symbol)) (parse body))
-;                 (map parse (cast exp (Listof Sexp))))
-;           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
-;    [(list (list (? symbol? (? ValidSymbol? args)) ...) '=> body)
-;       (if (= (length args) (length (remove-duplicates args)))
-;           (LamC (cast args (Listof Symbol)) (parse body))
-;           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
-;    [(list e ...)
-;     (match e
-;       [(cons f r) (AppC (parse f) (map parse r))])]
-;    [else (error 'parse "VVQS: Invalid expression")]))
+;; main VVQS parsing function
+;; parse converts an S-expression into an ExprC (AST)
+;; Modify the parse function according to the new ExprC definition
+;; Parse an S-expression into an ExprC
+(define (parse [sexp : Sexp]) : ExprC
+  (match sexp
+    [(? real? n) (NumC n)]
+    [(? symbol? (? ValidSymbol? s)) (IdC s)]
+    [(? string? s) (StrC s)]
+    [(list (? symbol? (? ValidSymbol? id)) '<- val) (SetC id (parse val))]
+    [(list body 'if test 'else else)
+     (IfC (parse body) (parse test) (parse else))]
+    [(list body 'where (list (list (? symbol? (? ValidSymbol? bindings)) ':= exp) ...))
+     (if (= (length bindings) (length (remove-duplicates bindings)))
+           (AppC (LamC (cast bindings (Listof Symbol)) (parse body))
+                 (map parse (cast exp (Listof Sexp))))
+           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
+    [(list (list (? symbol? (? ValidSymbol? args)) ...) '=> body)
+       (if (= (length args) (length (remove-duplicates args)))
+           (LamC (cast args (Listof Symbol)) (parse body))
+           (error 'parse "VVQS: Duplicate parameter names in function definition"))]
+    [(list e ...)
+     (match e
+       [(cons f r) (AppC (parse f) (map parse r))])]
+    [else (error 'parse "VVQS: Invalid expression")]))
 
 ;;;updated interp function to handle VVQS5, supports enviorments
 ;(define (interp [expr : ExprC] [env : Env]) : ValV
