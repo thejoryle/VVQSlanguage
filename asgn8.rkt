@@ -15,7 +15,7 @@
 (define-type TypeEnv (Listof TypeBind))
 (struct TypeBind [(name : Symbol) (val : Type)] #:transparent)
 
-; Define the types
+; Define the types... for types
 (define-type Type (U NumT StrT BoolT FunT ArrT VoidT))
 (struct NumT () #:transparent)
 (struct StrT () #:transparent)
@@ -53,7 +53,8 @@
   (match expr
     [(NumC n) (NumT)]
     [(StrC s) (StrT)]
-    [(ArrC a) (ArrT)]
+    [(ArrC a) (ArrT)];;should we type check here to makesure all of a types to either all
+    ;;StrT or all NumT
     [(IfC do test else) (typecheck do tenv)
                         (if (BoolT? (typecheck test tenv))
                             BoolT
@@ -64,7 +65,8 @@
                    (if (equal? var-type (typecheck val tenv))
                        var-type
                        (error 'typechecker "VVQS: cannot assign a val of different type to var"))]
-    [(AppC lam app-args) (match lam
+    [(AppC lam app-args) (match lam ;;we should a case for matchig lam to an IdC, which should then
+                           ;;lookup the type. If lam is LamC then the typechecker needs to reolve it 
                           [(LamC lam-args arg-t body)
                            (if (equal? (length lam-args) (length app-args))
                                (if (typecheck-lam-helper arg-t app-args tenv)
@@ -110,13 +112,20 @@
 (define (parse-types [sexps : (Listof Sexp)]) : (Listof Type)
   (map parse-type sexps))
 
-;; updated bad ID names for VVQS5
+;; updated bad ID names for VVQS8
 (define badsyms
   (hash
+   ':= #f
+   ': #f
+   '<- #f
+   '-> #f
+   'begin #f
+   'in #f
+   'makearr #f
    '= #f
    'where #f
    'if #f
-   'else #f
+   'then #f
    '=> #f))
 
 
@@ -271,6 +280,45 @@
 
 
 ;;;-------------------------------TEST CASES-----------------------------------------
+
+;; Test for number literal
+(check-equal? (parse 10) (NumC 10))
+
+;; Test for string literal
+(check-equal? (parse "hello") (StrC "hello"))
+
+;; Test for identifier
+(check-equal? (parse 'x) (IdC 'x))
+
+;; Test for assignment
+(check-equal? (parse '(x <- 10)) (SetC 'x (NumC 10)))
+
+;; Test for if-then-else
+(check-equal? (parse '(x if y then z))
+              (IfC (IdC 'x) (IdC 'y) (IdC 'z)))
+
+;; Test for where clause
+(check-equal? (parse '((x) where ((y : num) := (10))))
+              (AppC (LamC (list 'y) (list (NumT)) (IdC 'x)) (list (NumC 10))))
+
+;; Test for lambda function
+(check-equal? (parse '((x : num) => x))
+              (LamC (list 'x) (list (NumT)) (IdC 'x)))
+
+;; Test for recursive function
+(check-equal? (parse '(letrec f ((x : num) : num => x) in f))
+              (RecC 'f (list 'x) (list (NumT)) (IdC 'x) (NumT) (IdC 'f)))
+
+;; Test for begin expression
+(check-equal? (parse '(begin x y z)) (BegC (list (IdC 'x) (IdC 'y) (IdC 'z))))
+
+;; Test for array creation
+(check-equal? (parse '(makearr 1 2 3)) (ArrC (list (NumC 1) (NumC 2) (NumC 3))))
+
+;; Test for function application
+(check-equal? (parse '(f x y z)) (AppC (IdC 'f) (list (IdC 'x) (IdC 'y) (IdC 'z))))
+
+
 ;;; parser tests
 ;(define concreteLam '({x y} => {+ 3 {+ x y}}))
 ;(check-equal? (parse concreteLam)
