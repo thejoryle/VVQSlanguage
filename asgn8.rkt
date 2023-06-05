@@ -32,7 +32,7 @@
 (struct StrC ([s : String]) #:transparent)
 (struct IfC ([do? : ExprC] [test : ExprC] [else? : ExprC]) #:transparent)
 (struct LamC ([args : (Listof Symbol)] [arg-types : (Listof Type)]
-                                       [body : ExprC] [type : Type])#:transparent)
+                                       [body : ExprC])#:transparent)
 (struct IdC ([id : Symbol]) #:transparent)
 (struct AppC ([fun : ExprC] [args : (Listof ExprC)] ) #:transparent)
 (struct SetC ([id : Symbol] [val : ExprC]) #:transparent)
@@ -62,16 +62,18 @@
                    (if (equal? var-type (typecheck val tenv))
                        var-type
                        (error 'typechecker "VVQS: cannot assign a val of different type to var"))]
-    [(AppC fun app-args) (match fun
-                          [(LamC lam-args arg-t body type)
+    [(AppC lam app-args) (match lam
+                          [(LamC lam-args arg-t body)
                            (if (equal? (length lam-args) (length app-args))
                                (if (typecheck-lam-helper arg-t app-args tenv)
-                                   (match type
+                                   (match (typecheck lam tenv)
                                      [(FunT argt returnt) returnt])
                                    (error 'typechecker "VVQS: incorrect arg type for function application"))
                                (error 'typechecker "VVQS: incorrect number of args in function application"))]
                           [_ (error 'typechecker "VVQS: cannot apply a non-function")])]
-    #;[(LamC args arg-types body return-type) ()]))
+    [(LamC args arg-types body) (append (map (λ (arg arg-type)
+                                               (TypeBind arg arg-type)) args arg-types) tenv)
+                                (FunT arg-types (typecheck body tenv))]))
 
 ;; Helper function for the typechecker AppC case. Compares the types of the LamC params
 ;; with the applied args for equality and errors on any discrepency.
