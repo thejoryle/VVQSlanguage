@@ -65,19 +65,33 @@
                    (if (equal? var-type (typecheck val tenv))
                        var-type
                        (error 'typechecker "VVQS: cannot assign a val of different type to var"))]
-    [(AppC lam app-args) (match lam ;;we should a case for matchig lam to an IdC, which should then
-                           ;;lookup the type. If lam is LamC then the typechecker needs to reolve it 
-                          [(LamC lam-args arg-t body)
-                           (if (equal? (length lam-args) (length app-args))
-                               (if (typecheck-lam-helper arg-t app-args tenv)
-                                   (match (typecheck lam tenv)
-                                     [(FunT argt returnt) returnt])
-                                   (error 'typechecker "VVQS: incorrect arg type for function application"))
-                               (error 'typechecker "VVQS: incorrect number of args in function application"))]
-                          [_ (error 'typechecker "VVQS: cannot apply a non-function")])]
-    [(LamC args arg-types body) (append (map (λ (arg arg-type)
-                                               (TypeBind arg arg-type)) args arg-types) tenv)
-                                (FunT arg-types (typecheck body tenv))]))
+    [(AppC lam app-args) (match lam 
+                           [(LamC lam-args arg-t body)
+                            (if (equal? (length lam-args) (length app-args))
+                                (if (typecheck-lam-helper arg-t app-args tenv)
+                                    (match (typecheck lam tenv)
+                                      [(FunT argt returnt) returnt])
+                                    (error 'typechecker "VVQS: incorrect arg type for function application"))
+                                (error 'typechecker "VVQS: incorrect number of args in function application"))]
+                           [(IdC id) (match (t-lookup id tenv)
+                                       [(FunT argt returnt)
+                                        (if (equal? (length argt) (length app-args))
+                                            (if (typecheck-lam-helper argt app-args tenv)
+                                                returnt
+                                                (error 'typechecker "VVQS: incorrect arg type for function application"))
+                                            (error 'typechecker "VVQS: incorrect number of args in function application"))])]
+                           [_ (error 'typechecker "VVQS: cannot apply a non-function")])]
+    [(LamC args arg-types body) (define ext-tenv (append (map (λ (arg arg-type)
+                                               (TypeBind arg arg-type)) args arg-types) tenv))
+                                (FunT arg-types (typecheck body ext-tenv))]
+    [(RecC name args arg-types body type in) (define ext-tenv
+                                               (append
+                                                (map (λ (arg arg-type) (TypeBind arg arg-type)) args arg-types)
+                                                (list (TypeBind name (FunT arg-types type)))
+                                                tenv))
+                                             (if (equal? (typecheck body ext-tenv) type)
+                                                 (typecheck in ext-tenv)
+                                                 (error 'typechecker "VVQS: recursive body function does not evaluate to provided return type"))]))
 
 ;; Helper function for the typechecker AppC case. Compares the types of the LamC params
 ;; with the applied args for equality and errors on any discrepency.
@@ -153,19 +167,37 @@
          type
          (t-lookup for rest-env))]))
 
-;;; Implement the top-interp function
-;(define (top-interp [prog-sexp : Sexp])
-;  ;; Define the top-level environment
-;  (define top-env
-;    (list (bind '+ (PrimV '+ 2))
-;          (bind '- (PrimV '- 2))
-;          (bind '* (PrimV '* 2))
-;          (bind '/ (PrimV '/ 2))
-;          (bind '<= (PrimV '<= 2))
-;          (bind 'equal? (PrimV 'equal? 2))
-;          (bind 'true (BoolV #t))
-;          (bind 'false (BoolV #f))
-;          (bind 'error (PrimV 'error 1))))
+;; Implement the top-interp function
+(define (top-interp [prog-sexp : Sexp])
+  ;; Define the top-level environment
+  (define top-env
+    (list (bind '+ (PrimV '+ 2))
+          (bind '- (PrimV '- 2))
+          (bind '* (PrimV '* 2))
+          (bind '/ (PrimV '/ 2))
+          (bind '<= (PrimV '<= 2))
+          (bind 'equal? (PrimV 'equal? 2))
+          (bind 'true (BoolV #t))
+          (bind 'false (BoolV #f))
+          (bind 'error (PrimV 'error 1))))
+  (define top-tenv
+    (list (TypeBind '+ (FunT (list (NumT) (NumT)) (NumT)))
+          (TypeBind '- (FunT (list (NumT) (NumT)) (NumT)))
+          (TypeBind '* (FunT (list (NumT) (NumT)) (NumT)))
+          (TypeBind '/ (FunT (list (NumT) (NumT)) (NumT)))
+          (TypeBind 'num-eq? (FunT (list (NumT) (NumT)) (BoolT)))
+          (TypeBind 'str-eq? (FunT (list (StrT) (StrT)) (BoolT)))
+          (TypeBind 'num-eq? (FunT (list (NumT) (NumT)) (BoolT)))
+          (TypeBind '<= (FunT (list (NumT) (NumT)) (BoolT)))
+          (TypeBind 'substring (FunT (list (StrT) (NumT) (NumT)) (StrT)))
+          (TypeBind 'arr (FunT (list (NumT) (NumT)) (ArrT)))
+          (TypeBind 'aref (FunT (list (ArrT) (NumT)) (NumT)))
+          (TypeBind 'aset (FunT (list (ArrT) (NumT) (NumT)) (VoidT)))
+          (TypeBind 'alen (FunT (list (ArrT)) (NumT)))))
+  (define AST (parse prog-sexp))
+  (if (typecheck AST top-tenv)
+      (print "lit")
+      (print "not lit")))
 ;  (serialize (interp (parse prog-sexp) top-env)))
 
 ;; main VVQS parsing function
