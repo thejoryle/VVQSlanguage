@@ -130,6 +130,7 @@
           (TypeBind 'alen (FunT (list (ArrT)) (NumT)))))
 
 ;; Implement the top-interp function
+;; Implement the top-interp function
 (define (top-interp [prog-sexp : Sexp])
   ;; Define the top-level environment
   (define top-env
@@ -143,9 +144,8 @@
           (bind 'false (box (BoolV #f)))
           (bind 'error (box (PrimV 'error 1)))))
   (define AST (parse prog-sexp))
-  (if (typecheck AST base-tenv)
-      (print "lit")
-      (print "not lit")))
+  (begin (typecheck AST base-tenv)
+      (serialize (interp AST top-env))))
 ;  (serialize (interp (parse prog-sexp) top-env)))
 
 ;; main VVQS parsing function
