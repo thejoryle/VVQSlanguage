@@ -1,5 +1,7 @@
 #lang typed/racket
 
+;;Progress Statement: Features implemented but untestested.
+
 ;; Define data structures for the abstract syntax tree (AST)
 (require typed/rackunit)
 
@@ -337,31 +339,31 @@
         (match (list (first args) (second args))
           [(list (NumV a) (NumV b)) (BoolV (= a b))]
           [else (error "VVQS: Argument must be real")])]
-       ['str-eq?
-        (match (list (first args) (second args))
-          [(list (StrV a) (StrV b)) (BoolV (string=? a b))]
-          [else (error "VVQS: Argument must be string")])]
-       ['substring
-        (match (list (first args) (second args) (third args))
-          [(list (StrV str) (NumV begin) (NumV end)) (StrV (substring str begin end))]
-          [else (error "VVQS: Incorrect argument types for substring")])]
-       ['arr
-        (match (list (first args) (second args))
-          [(list (NumV size) (NumV default)) (ArrV (make-vector size default))]
-          [else (error "VVQS: Incorrect argument types for arr")])]
-       ['aref
-        (match (list (first args) (second args))
-          [(list (ArrV arr) (NumV idx)) (NumV (vector-ref arr idx))]
-          [else (error "VVQS: Incorrect argument types for aref")])]
-       ['aset
-        (match (list (first args) (second args) (third args))
-          [(list (ArrV arr) (NumV idx) (NumV newval))
-           (begin (vector-set! arr idx newval) VoidV)]
-          [else (error "VVQS: Incorrect argument types for aset")])]
-       ['alen
-        (match (first args)
-          [(ArrV arr) (NumV (vector-length arr))]
-          [else (error "VVQS: Argument must be array")])]
+;       ['str-eq?
+;        (match (list (first args) (second args))
+;          [(list (StrV a) (StrV b)) (BoolV (string=? a b))]
+;          [else (error "VVQS: Argument must be string")])]
+;       ['substring
+;        (match (list (first args) (second args) (third args))
+;          [(list (StrV str) (NumV begin) (NumV end)) (StrV (substring str (cast begin Integer) (cast end Integer)))]
+;          [else (error "VVQS: Incorrect argument types for substring")])]
+;       ['arr
+;        (match (list (first args) (second args))
+;          [(list (NumV size) (NumV default)) (ArrV (make-vector size default))]
+;          [else (error "VVQS: Incorrect argument types for arr")])]
+;       ['aref
+;        (match (list (first args) (second args))
+;          [(list (ArrV arr) (NumV idx)) (NumV (vector-ref arr (cast idx Integer)))]
+;          [else (error "VVQS: Incorrect argument types for aref")])]
+;       ['aset
+;        (match (list (first args) (second args) (third args))
+;          [(list (ArrV arr) (NumV idx) (NumV newval))
+;           (begin (vector-set! arr idx newval) VoidV)]
+;          [else (error "VVQS: Incorrect argument types for aset")])]
+;       ['alen
+;        (match (first args)
+;          [(ArrV arr) (NumV (vector-length arr))]
+;          [else (error "VVQS: Argument must be array")])]
 )]))
 
 
