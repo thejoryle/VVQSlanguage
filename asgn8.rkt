@@ -268,7 +268,7 @@
             (apply-prim func-val arg-values env)
             (error 'interp (format "VVQS: Wrong number of arguments for primitive ~a" name)))]
        [else (error 'interp "VVQS: Attempted to apply non-function value")])]
-     [(SetC id val)
+    [(SetC id val)
      (let [(bindval (lookup id env))]
        (match bindval
          [(box _) (begin (set-box! bindval (interp val env)) (VoidV))]) ; set-box!
@@ -286,7 +286,12 @@
                  (if (andmap (λ ([v : ValV]) (NumV? v)) values) ; check each value is a NumV
                      (ArrV (list->vector values))
                      (error 'interp "VVQS: All elements of an array must be numbers"))] ; return vector with evaluated expressions
-))
+    [(RecC id args arg-types body type in)
+     (define junk-box : (Boxof ValV) (box (VoidV)))
+     (define new-env (append (list (bind id junk-box)) env))
+     (define closure (CloV args body new-env))
+     (set-box! junk-box closure)
+     (interp in new-env)]))
 
 ;; Apply a primitive operation based on its name
 (: apply-prim (PrimV (Listof ValV) Env -> ValV))
