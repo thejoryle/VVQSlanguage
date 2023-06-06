@@ -4,12 +4,15 @@
 (require typed/rackunit)
 
 ;;Value types
-(define-type ValV (U CloV PrimV StrV NumV BoolV))
+(define-type ValV (U CloV PrimV StrV NumV BoolV VoidV ArrV))
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : Env])#:transparent)
 (struct PrimV ([name : Symbol] [arity : Natural])#:transparent)
 (struct StrV ([val : String])#:transparent)
 (struct NumV ([val : Real])#:transparent)
 (struct BoolV ([val : Boolean])#:transparent)
+(struct VoidV ()#:transparent)
+(struct ArrV ([val : (Mutable-Vectorof NumV)])#:transparent)
+
 
 ; Define the type environment data structure
 (define-type TypeEnv (Listof TypeBind))
@@ -44,7 +47,7 @@
 
 ;; Define the environment data type
 (define-type Env (Listof bind))
-(struct bind[(name : Symbol) (val : ValV)] #:transparent)
+(struct bind[(name : Symbol) (val : (Boxof ValV))] #:transparent)
 (define mt-env empty)
 
 
@@ -91,7 +94,7 @@
     [else #t]))
 
 ;; Define the lookup function for environments
-(define (lookup [for : Symbol] [env : Env]) : ValV
+(define (lookup [for : Symbol] [env : Env]) : (Boxof ValV)
   (match env
     [(list) (error 'lookup "VVQS: name not found in environment")]
     [(cons (bind name val) rest-env)
@@ -107,6 +110,7 @@
      (if (symbol=? for name)
          type
          (t-lookup for rest-env))]))
+
 
 (define base-tenv
     (list (TypeBind '+ (FunT (list (NumT) (NumT)) (NumT)))
@@ -127,15 +131,15 @@
 (define (top-interp [prog-sexp : Sexp])
   ;; Define the top-level environment
   (define top-env
-    (list (bind '+ (PrimV '+ 2))
-          (bind '- (PrimV '- 2))
-          (bind '* (PrimV '* 2))
-          (bind '/ (PrimV '/ 2))
-          (bind '<= (PrimV '<= 2))
-          (bind 'equal? (PrimV 'equal? 2))
-          (bind 'true (BoolV #t))
-          (bind 'false (BoolV #f))
-          (bind 'error (PrimV 'error 1))))
+    (list (bind '+ (box (PrimV '+ 2)))
+          (bind '- (box (PrimV '- 2)))
+          (bind '* (box (PrimV '* 2)))
+          (bind '/ (box (PrimV '/ 2)))
+          (bind '<= (box (PrimV '<= 2)))
+          (bind 'equal? (box (PrimV 'equal? 2)))
+          (bind 'true (box (BoolV #t)))
+          (bind 'false (box (BoolV #f)))
+          (bind 'error (box (PrimV 'error 1)))))
   (define AST (parse prog-sexp))
   (if (typecheck AST base-tenv)
       (print "lit")
@@ -152,8 +156,8 @@
     [(? symbol? (? ValidSymbol? s)) (IdC s)]
     [(? string? s) (StrC s)]
     [(list (? symbol? (? ValidSymbol? id)) '<- val) (SetC id (parse val))]
-    [(list body 'if test 'else then)
-     (IfC (parse body) (parse test) (parse then))]
+    [(list body 'if test 'else else)
+     (IfC (parse body) (parse test) (parse else))]
     [(list body 'where (list (list (list (? symbol? (? ValidSymbol? bindings)) ': ty) ':= exp) ...))
      (if (= (length bindings) (length (remove-duplicates bindings)))
            (AppC (LamC (cast bindings (Listof Symbol)) (parse-types (cast ty (Listof Sexp))) (parse body))
@@ -229,35 +233,75 @@
                                                  (error 'typechecker "VVQS: recursive body function does not evaluate to provided return type"))]))
 
 
-;;;updated interp function to handle VVQS5, supports enviorments
-;(define (interp [expr : ExprC] [env : Env]) : ValV
-;  (match expr
-;    [(NumC n) (NumV n)]
-;    [(StrC s) (StrV s)]
-;    [(IfC do? test else?)
-;     (define test-result (interp test env))
-;     (match test-result
-;       [(BoolV #t) (interp do? env)]
-;       [(BoolV #f) (interp else? env)]
-;       [else (error 'interp "VVQS: Test expression in if must return a boolean")])]
-;    [(LamC args body) (CloV args body env)]
-;    [(IdC id)
-;     (lookup id env)]
-;    [(AppC fun args)
-;     (define func-val (interp fun env))
-;     (define arg-values (map (λ (arg) (interp (cast arg ExprC) env)) args))
-;     (match func-val
-;       [(CloV params body closure-env)
-;        (if (= (length params) (length arg-values))
-;            (let ([extended-env (append (map (λ (param arg) (bind (cast param Symbol)
-;                                                                  (cast arg ValV))) params arg-values) closure-env)])
-;              (interp body extended-env))
-;            (error 'interp (format "VVQS: Wrong number of arguments in application")))]
-;       [(PrimV name arity)
-;        (if (= arity (length arg-values))
-;            (apply-prim func-val arg-values env)
-;            (error 'interp (format "VVQS: Wrong number of arguments for primitive ~a" name)))]
-;       [else (error 'interp "VVQS: Attempted to apply non-function value")])]))
+
+;; Helper function for the typechecker AppC case. Compares the types of the LamC params
+;; with the applied args for equality and errors on any discrepency.
+(define (typecheck-lam-helper [params : (Listof Type)] [args : (Listof ExprC)]
+                              [tenv : TypeEnv]) : Boolean
+  (match params
+    [(list) #t]
+    [(cons pf pr)
+     (match args
+       [(cons af ar)
+        (if (equal? pf (typecheck af tenv))
+            (typecheck-lam-helper pr ar tenv)
+            #f)])]))
+
+
+;;updated interp function to handle VVQS5, supports enviorments
+(define (interp [expr : ExprC] [env : Env]) : ValV
+  (match expr
+    [(NumC n) (NumV n)]
+    [(StrC s) (StrV s)]
+    [(IfC do? test else?)
+     (define test-result (interp test env))
+     (match test-result
+       [(BoolV #t) (interp do? env)]
+       [(BoolV #f) (interp else? env)]
+       [else (error 'interp "VVQS: Test expression in if must return a boolean")])]
+    [(LamC args arg-types body) (CloV args body env)]
+    [(IdC id)
+     (let [(bindval (lookup id env))]
+       (match bindval
+         [(box val) val]))]
+    [(AppC fun args)
+     (define func-val (interp fun env))
+     (define arg-values (map (λ (arg) (interp (cast arg ExprC) env)) args))
+     (match func-val
+       [(CloV params body closure-env)
+        (if (= (length params) (length arg-values))
+            (let ([extended-env (append (map (λ ([param : Symbol] [arg : ValV]) (bind param (box arg))) params arg-values) closure-env)])
+              (interp body extended-env))
+            (error 'interp (format "VVQS: Wrong number of arguments in application")))]
+       [(PrimV name arity)
+        (if (= arity (length arg-values))
+            (apply-prim func-val arg-values env)
+            (error 'interp (format "VVQS: Wrong number of arguments for primitive ~a" name)))]
+       [else (error 'interp "VVQS: Attempted to apply non-function value")])]
+    [(SetC id val)
+     (let [(bindval (lookup id env))]
+       (match bindval
+         [(box _) (begin (set-box! bindval (interp val env)) (VoidV))]) ; set-box!
+       )]
+    [(BegC exps) (match exps
+                   ['() (VoidV)] ; if the list is empty, return void
+                   [(cons _ _) (let [(values (map (λ ([e : ExprC]) (interp e env)) exps))]
+                                 (if (empty? values) 
+                                     (VoidV)
+                                     (let [(last-value (car (reverse values)))] ; get the last value
+                                       (match last-value
+                                         [(VoidV) (NumV 0)] ; if the last value is void, return NumV 0
+                                         [else last-value]))))])]
+    [(ArrC exps) (define values (map (λ ([e : ExprC]) : ValV (interp e env)) exps))
+                 (if (andmap (λ ([v : ValV]) (NumV? v)) values) ; check each value is a NumV
+                     (ArrV (list->vector values))
+                     (error 'interp "VVQS: All elements of an array must be numbers"))] ; return vector with evaluated expressions
+    [(RecC id args arg-types body type in)
+     (define junk-box : (Boxof ValV) (box (VoidV)))
+     (define new-env (append (list (bind id junk-box)) env))
+     (define closure (CloV args body new-env))
+     (set-box! junk-box closure)
+     (interp in new-env)]))
 
 ;; Apply a primitive operation based on its name
 (: apply-prim (PrimV (Listof ValV) Env -> ValV))
@@ -288,11 +332,37 @@
         (match (list (first args) (second args))
           [(list (NumV a) (NumV b)) (BoolV (<= a b))]
           [else (error "VVQS: Argument must be real")])]
-       ['equal?
-        (if (andmap (lambda (x) (not (or (CloV? x) (PrimV? x)))) args)
-            (BoolV (equal? (serialize (first args)) (serialize (second args))))
-            (BoolV #f))]
-       ['error (error (format "user-error ~a" (serialize (first args))))])]))
+       
+       ['num-eq?
+        (match (list (first args) (second args))
+          [(list (NumV a) (NumV b)) (BoolV (= a b))]
+          [else (error "VVQS: Argument must be real")])]
+       ['str-eq?
+        (match (list (first args) (second args))
+          [(list (StrV a) (StrV b)) (BoolV (string=? a b))]
+          [else (error "VVQS: Argument must be string")])]
+       ['substring
+        (match (list (first args) (second args) (third args))
+          [(list (StrV str) (NumV begin) (NumV end)) (StrV (substring str begin end))]
+          [else (error "VVQS: Incorrect argument types for substring")])]
+       ['arr
+        (match (list (first args) (second args))
+          [(list (NumV size) (NumV default)) (ArrV (make-vector size default))]
+          [else (error "VVQS: Incorrect argument types for arr")])]
+       ['aref
+        (match (list (first args) (second args))
+          [(list (ArrV arr) (NumV idx)) (NumV (vector-ref arr idx))]
+          [else (error "VVQS: Incorrect argument types for aref")])]
+       ['aset
+        (match (list (first args) (second args) (third args))
+          [(list (ArrV arr) (NumV idx) (NumV newval))
+           (begin (vector-set! arr idx newval) VoidV)]
+          [else (error "VVQS: Incorrect argument types for aset")])]
+       ['alen
+        (match (first args)
+          [(ArrV arr) (NumV (vector-length arr))]
+          [else (error "VVQS: Argument must be array")])]
+)]))
 
 
 (: serialize (ValV -> String))
@@ -306,7 +376,8 @@
      #;(format "<primitive: ~a, arity: ~a>" name arity)] 
     [(StrV s) s]
     [(NumV n) (number->string n)]
-    [(BoolV b) (if b "true" "false")]))
+    [(BoolV b) (if b "true" "false")]
+    [(ArrV a) (string-append "#<array")]))
 
 
 ;;;-------------------------------TEST CASES-----------------------------------------
@@ -343,14 +414,7 @@
 
 ;; Test for recursive function
 (check-equal? (parse '(letrec (f ((x : num)) : num => x) in f))
-              (RecC
-               'f
-               '(x)
-               (list (NumT))
-               (IdC 'x)
-               (NumT)
-               (IdC 'f))
-)
+              (RecC 'f (list 'x) (list (NumT)) (IdC 'x) (NumT) (IdC 'f)))
 
 ;; Test for begin expression
 (check-equal? (parse '(begin x y z)) (BegC (list (IdC 'x) (IdC 'y) (IdC 'z))))
