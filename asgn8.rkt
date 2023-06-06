@@ -361,6 +361,11 @@
 ;; Test for function application
 (check-equal? (parse '(f x y z)) (AppC (IdC 'f) (list (IdC 'x) (IdC 'y) (IdC 'z))))
 
+;; parser errors
+(check-exn #rx"expression" (λ () (parse '(if 4))))
+(check-exn #rx"Duplicate" (λ () (parse '({[x : num] [x : num]} => {+ x x}))))
+(check-exn #rx"Duplicate" (λ () (parse '({+ yer yump} where {[[yer : num] := 4] [[yer : num] := 6]}))))
+
 ;; Type Checker test cases
 (define IfC-syntax '("yer" if {<= 2 6} else "naw"))
 (check-equal? (typecheck (parse IfC-syntax) base-tenv) (StrT))
@@ -399,26 +404,8 @@
   (list (TypeBind 'f (FunT (list (NumT) (NumT)) (NumT)))))
 (check-exn #rx"arg type" (λ () (typecheck (AppC (IdC 'f) (list (NumC 1) (StrC "abc"))) test-tenv)))
 
-;;; parser tests
-;(define concreteLam '({x y} => {+ 3 {+ x y}}))
-;(check-equal? (parse concreteLam)
-;              (LamC (list 'x 'y)
-;                    (AppC (IdC '+) (list (NumC 3)
-;                                         (AppC (IdC '+)
-;                                               (list (IdC 'x) (IdC 'y)))))))
-;
-;(define ifTest '(("nice" if {<= x 4} else "lame") where {[x := 5]}))
-;(check-equal? (parse ifTest)
-;              (AppC (LamC '(x)
-;                          (IfC (StrC "nice")
-;                               (AppC (IdC '<=) (list (IdC 'x) (NumC 4)))
-;                               (StrC "lame")))
-;                    (list (NumC 5))))
-;
-;;; parser errors
-;(check-exn #rx"expression" (λ () (parse '(if 4))))
-;(check-exn #rx"Duplicate" (λ () (parse '({x x} => {+ x x}))))
-;(check-exn #rx"Duplicate" (λ () (parse '({+ yer yump} where {[yer := 4] [yer := 6]}))))
+
+
 ;
 ;
 ;;; interp tests
