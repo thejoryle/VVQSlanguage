@@ -391,6 +391,14 @@
 (define appC-wrong-args2 '({{[x : {num -> num}]} => x} 5))
 (check-exn #rx"arg type" (λ () (typecheck (parse appC-wrong-args2) base-tenv)))
 
+(define test-tenv
+  (list (TypeBind 'f (FunT (list (NumT) (NumT)) (NumT)))))
+(check-exn #rx"number of args" (λ ( )(typecheck (AppC (IdC 'f) (list (NumC 1))) test-tenv)))
+
+(define test-tenv2
+  (list (TypeBind 'f (FunT (list (NumT) (NumT)) (NumT)))))
+(check-exn #rx"arg type" (λ () (typecheck (AppC (IdC 'f) (list (NumC 1) (StrC "abc"))) test-tenv)))
+
 ;;; parser tests
 ;(define concreteLam '({x y} => {+ 3 {+ x y}}))
 ;(check-equal? (parse concreteLam)
