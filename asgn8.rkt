@@ -108,20 +108,7 @@
          type
          (t-lookup for rest-env))]))
 
-;; Implement the top-interp function
-(define (top-interp [prog-sexp : Sexp])
-  ;; Define the top-level environment
-  (define top-env
-    (list (bind '+ (PrimV '+ 2))
-          (bind '- (PrimV '- 2))
-          (bind '* (PrimV '* 2))
-          (bind '/ (PrimV '/ 2))
-          (bind '<= (PrimV '<= 2))
-          (bind 'equal? (PrimV 'equal? 2))
-          (bind 'true (BoolV #t))
-          (bind 'false (BoolV #f))
-          (bind 'error (PrimV 'error 1))))
-  (define top-tenv
+(define base-tenv
     (list (TypeBind '+ (FunT (list (NumT) (NumT)) (NumT)))
           (TypeBind '- (FunT (list (NumT) (NumT)) (NumT)))
           (TypeBind '* (FunT (list (NumT) (NumT)) (NumT)))
@@ -135,8 +122,22 @@
           (TypeBind 'aref (FunT (list (ArrT) (NumT)) (NumT)))
           (TypeBind 'aset (FunT (list (ArrT) (NumT) (NumT)) (VoidT)))
           (TypeBind 'alen (FunT (list (ArrT)) (NumT)))))
+
+;; Implement the top-interp function
+(define (top-interp [prog-sexp : Sexp])
+  ;; Define the top-level environment
+  (define top-env
+    (list (bind '+ (PrimV '+ 2))
+          (bind '- (PrimV '- 2))
+          (bind '* (PrimV '* 2))
+          (bind '/ (PrimV '/ 2))
+          (bind '<= (PrimV '<= 2))
+          (bind 'equal? (PrimV 'equal? 2))
+          (bind 'true (BoolV #t))
+          (bind 'false (BoolV #f))
+          (bind 'error (PrimV 'error 1))))
   (define AST (parse prog-sexp))
-  (if (typecheck AST top-tenv)
+  (if (typecheck AST base-tenv)
       (print "lit")
       (print "not lit")))
 ;  (serialize (interp (parse prog-sexp) top-env)))
@@ -151,7 +152,7 @@
     [(? symbol? (? ValidSymbol? s)) (IdC s)]
     [(? string? s) (StrC s)]
     [(list (? symbol? (? ValidSymbol? id)) '<- val) (SetC id (parse val))]
-    [(list body 'if test 'then then)
+    [(list body 'if test 'else then)
      (IfC (parse body) (parse test) (parse then))]
     [(list body 'where (list (list (list (? symbol? (? ValidSymbol? bindings)) ': ty) ':= exp) ...))
      (if (= (length bindings) (length (remove-duplicates bindings)))
@@ -182,20 +183,25 @@
     [(ArrC a) (if (equal? (length a) (length (filter NumC? a)))
                   (ArrT)
                   (error 'typecheck "VVQS: Arr must contain nums only"))]
-    [(IfC do test else) (typecheck do tenv)
-                        (if (BoolT? (typecheck test tenv))
-                            BoolT
-                            (error 'typechecker "VVQS: if-then test case must return a boolean"))
-                        (typecheck else tenv)]
+    [(IfC do test else) (define return-type (typecheck do tenv))
+                        (if (equal? return-type (typecheck else tenv))
+                            (if (BoolT? (typecheck test tenv))
+                                return-type
+                                (error 'typechecker "VVQS: if-then test case must return a boolean"))
+                            (error 'typechecker "VVQS: then and else expressions must return the same type"))]
     [(IdC id) (t-lookup id tenv)]
     [(SetC id val) (define var-type (t-lookup id tenv))
                    (if (equal? var-type (typecheck val tenv))
                        var-type
                        (error 'typechecker "VVQS: cannot assign a val of different type to var"))]
+    [(BegC exprs) (define beg-checked(map (λ ([expr : ExprC]) (typecheck expr tenv)) exprs))
+                  (last beg-checked)]
     [(AppC lam app-args) (match lam 
-                           [(LamC lam-args arg-t body)
-                            (if (equal? (length lam-args) (length app-args))
-                                (if (typecheck-lam-helper arg-t app-args tenv)
+                           [(LamC lam-param param-t body)
+                            (if (equal? (length lam-param) (length app-args))
+                                (if (equal? param-t (map (λ ([arg-t : ExprC])
+                                                           (typecheck arg-t tenv))
+                                                         app-args))
                                     (match (typecheck lam tenv)
                                       [(FunT argt returnt) returnt])
                                     (error 'typechecker "VVQS: incorrect arg type for function application"))
@@ -203,7 +209,9 @@
                            [(IdC id) (match (t-lookup id tenv)
                                        [(FunT argt returnt)
                                         (if (equal? (length argt) (length app-args))
-                                            (if (typecheck-lam-helper argt app-args tenv)
+                                            (if (equal? argt (map (λ ([arg-t : ExprC])
+                                                           (typecheck arg-t tenv))
+                                                         app-args))
                                                 returnt
                                                 (error 'typechecker "VVQS: incorrect arg type for function application"))
                                             (error 'typechecker "VVQS: incorrect number of args in function application"))])]
@@ -219,20 +227,6 @@
                                              (if (equal? (typecheck body ext-tenv) type)
                                                  (typecheck in ext-tenv)
                                                  (error 'typechecker "VVQS: recursive body function does not evaluate to provided return type"))]))
-
-
-;; Helper function for the typechecker AppC case. Compares the types of the LamC params
-;; with the applied args for equality and errors on any discrepency.
-(define (typecheck-lam-helper [params : (Listof Type)] [args : (Listof ExprC)]
-                              [tenv : TypeEnv]) : Boolean
-  (match params
-    [(list) #t]
-    [(cons pf pr)
-     (match args
-       [(cons af ar)
-        (if (equal? pf (typecheck af tenv))
-            (typecheck-lam-helper pr ar tenv)
-            #f)])]))
 
 
 ;;;updated interp function to handle VVQS5, supports enviorments
@@ -317,6 +311,7 @@
 
 ;;;-------------------------------TEST CASES-----------------------------------------
 
+;; Parse test cases
 ;; Test for number literal
 (check-equal? (parse 10) (NumC 10))
 
@@ -330,7 +325,7 @@
 (check-equal? (parse '(x <- 10)) (SetC 'x (NumC 10)))
 
 ;; Test for if-then-else
-(check-equal? (parse '(x if y then z))
+(check-equal? (parse '(x if y else z))
               (IfC (IdC 'x) (IdC 'y) (IdC 'z)))
 
 ;; Test for where clause
@@ -366,6 +361,35 @@
 ;; Test for function application
 (check-equal? (parse '(f x y z)) (AppC (IdC 'f) (list (IdC 'x) (IdC 'y) (IdC 'z))))
 
+;; Type Checker test cases
+(define IfC-syntax '("yer" if {<= 2 6} else "naw"))
+(check-equal? (typecheck (parse IfC-syntax) base-tenv) (StrT))
+
+(define recursive-syntax '(letrec {fact {[x : num]} : num =>
+                                        {1 if {<= x 0} else {* x {fact {- x 1}}}}} in {fact 6}))
+(check-equal? (typecheck (parse recursive-syntax) base-tenv) (NumT))
+
+(define appC-syntax '({{[a : numarray]} => {begin a (a <- (makearr 1 2 3))}} {makearr 3 2 1}))
+(check-equal? (typecheck (parse appC-syntax) base-tenv) (ArrT))
+
+;; Type Checker error cases
+(check-exn #rx"Arr" (λ () (typecheck (ArrC (list (NumC 2) (StrC "Fail"))) base-tenv)))
+(check-exn #rx"boolean" (λ () (typecheck (IfC (NumC 2) (NumC 3) (NumC 4)) base-tenv)))
+(check-exn #rx"same type" (λ () (typecheck (IfC (NumC 2) (IdC 'true) (StrC "4")) base-tenv)))
+(check-exn #rx"different type" (λ () (typecheck (SetC 'x (NumC 5)) (list (TypeBind 'x (StrT))))))
+
+(define appC-bad-syntax '({{[a : numarray]} => a}5))
+(check-exn #rx"arg type" (λ () (typecheck (parse appC-bad-syntax) base-tenv)))
+
+(define appC-wrong-args '({{[a : num]} => a} 4 5))
+(check-exn #rx"number of args" (λ () (typecheck (parse appC-wrong-args) base-tenv)))
+(check-exn #rx"non-function" (λ () (typecheck (AppC (NumC 4) (list (NumC 3))) base-tenv)))
+
+(define recC-mismatch '(letrec {fun {[y : num]} : str => y} in 5))
+(check-exn #rx"provided return" (λ () (typecheck (parse recC-mismatch) base-tenv)))
+
+(define appC-wrong-args2 '({{[x : {num -> num}]} => x} 5))
+(check-exn #rx"arg type" (λ () (typecheck (parse appC-wrong-args2) base-tenv)))
 
 ;;; parser tests
 ;(define concreteLam '({x y} => {+ 3 {+ x y}}))
