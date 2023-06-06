@@ -47,65 +47,6 @@
 (struct bind[(name : Symbol) (val : ValV)] #:transparent)
 (define mt-env empty)
 
-;; The type checker for VVQS8. Recursively evaluates the type of an exprC and, if successful,
-;; does nothing. If an expression isn't correctly typed, it raises the appropriate error.
-(define (typecheck [expr : ExprC] [tenv : TypeEnv]) : Type
-  (match expr
-    [(NumC n) (NumT)]
-    [(StrC s) (StrT)]
-    [(ArrC a) (ArrT)];;should we type check here to makesure all of a types to either all
-    ;;StrT or all NumT
-    [(IfC do test else) (typecheck do tenv)
-                        (if (BoolT? (typecheck test tenv))
-                            BoolT
-                            (error 'typechecker "VVQS: if-then test case must return a boolean"))
-                        (typecheck else tenv)]
-    [(IdC id) (t-lookup id tenv)]
-    [(SetC id val) (define var-type (t-lookup id tenv))
-                   (if (equal? var-type (typecheck val tenv))
-                       var-type
-                       (error 'typechecker "VVQS: cannot assign a val of different type to var"))]
-    [(AppC lam app-args) (match lam 
-                           [(LamC lam-args arg-t body)
-                            (if (equal? (length lam-args) (length app-args))
-                                (if (typecheck-lam-helper arg-t app-args tenv)
-                                    (match (typecheck lam tenv)
-                                      [(FunT argt returnt) returnt])
-                                    (error 'typechecker "VVQS: incorrect arg type for function application"))
-                                (error 'typechecker "VVQS: incorrect number of args in function application"))]
-                           [(IdC id) (match (t-lookup id tenv)
-                                       [(FunT argt returnt)
-                                        (if (equal? (length argt) (length app-args))
-                                            (if (typecheck-lam-helper argt app-args tenv)
-                                                returnt
-                                                (error 'typechecker "VVQS: incorrect arg type for function application"))
-                                            (error 'typechecker "VVQS: incorrect number of args in function application"))])]
-                           [_ (error 'typechecker "VVQS: cannot apply a non-function")])]
-    [(LamC args arg-types body) (define ext-tenv (append (map (λ (arg arg-type)
-                                               (TypeBind arg arg-type)) args arg-types) tenv))
-                                (FunT arg-types (typecheck body ext-tenv))]
-    [(RecC name args arg-types body type in) (define ext-tenv
-                                               (append
-                                                (map (λ (arg arg-type) (TypeBind arg arg-type)) args arg-types)
-                                                (list (TypeBind name (FunT arg-types type)))
-                                                tenv))
-                                             (if (equal? (typecheck body ext-tenv) type)
-                                                 (typecheck in ext-tenv)
-                                                 (error 'typechecker "VVQS: recursive body function does not evaluate to provided return type"))]))
-
-;; Helper function for the typechecker AppC case. Compares the types of the LamC params
-;; with the applied args for equality and errors on any discrepency.
-(define (typecheck-lam-helper [params : (Listof Type)] [args : (Listof ExprC)]
-                              [tenv : TypeEnv]) : Boolean
-  (match params
-    [(list) #t]
-    [(cons pf pr)
-     (match args
-       [(cons af ar)
-        (if (equal? pf (typecheck af tenv))
-            (typecheck-lam-helper pr ar tenv)
-            #f)])]))
-
 
 ;; Helper function to parse types
 (define (parse-type [sexp : Sexp]) : Type
@@ -230,6 +171,69 @@
      (match e
        [(cons f r) (AppC (parse f) (map parse r))])]
     [else (error 'parse "VVQS: Invalid expression")]))
+
+
+;; The type checker for VVQS8. Recursively evaluates the type of an exprC and, if successful,
+;; does nothing. If an expression isn't correctly typed, it raises the appropriate error.
+(define (typecheck [expr : ExprC] [tenv : TypeEnv]) : Type
+  (match expr
+    [(NumC n) (NumT)]
+    [(StrC s) (StrT)]
+    [(ArrC a) (if (equal? (length a) (length (filter NumC? a)))
+                  (ArrT)
+                  (error 'typecheck "VVQS: Arr must contain nums only"))]
+    [(IfC do test else) (typecheck do tenv)
+                        (if (BoolT? (typecheck test tenv))
+                            BoolT
+                            (error 'typechecker "VVQS: if-then test case must return a boolean"))
+                        (typecheck else tenv)]
+    [(IdC id) (t-lookup id tenv)]
+    [(SetC id val) (define var-type (t-lookup id tenv))
+                   (if (equal? var-type (typecheck val tenv))
+                       var-type
+                       (error 'typechecker "VVQS: cannot assign a val of different type to var"))]
+    [(AppC lam app-args) (match lam 
+                           [(LamC lam-args arg-t body)
+                            (if (equal? (length lam-args) (length app-args))
+                                (if (typecheck-lam-helper arg-t app-args tenv)
+                                    (match (typecheck lam tenv)
+                                      [(FunT argt returnt) returnt])
+                                    (error 'typechecker "VVQS: incorrect arg type for function application"))
+                                (error 'typechecker "VVQS: incorrect number of args in function application"))]
+                           [(IdC id) (match (t-lookup id tenv)
+                                       [(FunT argt returnt)
+                                        (if (equal? (length argt) (length app-args))
+                                            (if (typecheck-lam-helper argt app-args tenv)
+                                                returnt
+                                                (error 'typechecker "VVQS: incorrect arg type for function application"))
+                                            (error 'typechecker "VVQS: incorrect number of args in function application"))])]
+                           [_ (error 'typechecker "VVQS: cannot apply a non-function")])]
+    [(LamC args arg-types body) (define ext-tenv (append (map (λ (arg arg-type)
+                                               (TypeBind arg arg-type)) args arg-types) tenv))
+                                (FunT arg-types (typecheck body ext-tenv))]
+    [(RecC name args arg-types body type in) (define ext-tenv
+                                               (append
+                                                (map (λ (arg arg-type) (TypeBind arg arg-type)) args arg-types)
+                                                (list (TypeBind name (FunT arg-types type)))
+                                                tenv))
+                                             (if (equal? (typecheck body ext-tenv) type)
+                                                 (typecheck in ext-tenv)
+                                                 (error 'typechecker "VVQS: recursive body function does not evaluate to provided return type"))]))
+
+
+;; Helper function for the typechecker AppC case. Compares the types of the LamC params
+;; with the applied args for equality and errors on any discrepency.
+(define (typecheck-lam-helper [params : (Listof Type)] [args : (Listof ExprC)]
+                              [tenv : TypeEnv]) : Boolean
+  (match params
+    [(list) #t]
+    [(cons pf pr)
+     (match args
+       [(cons af ar)
+        (if (equal? pf (typecheck af tenv))
+            (typecheck-lam-helper pr ar tenv)
+            #f)])]))
+
 
 ;;;updated interp function to handle VVQS5, supports enviorments
 ;(define (interp [expr : ExprC] [env : Env]) : ValV
