@@ -151,8 +151,8 @@
     [(? symbol? (? ValidSymbol? s)) (IdC s)]
     [(? string? s) (StrC s)]
     [(list (? symbol? (? ValidSymbol? id)) '<- val) (SetC id (parse val))]
-    [(list body 'if test 'else else)
-     (IfC (parse body) (parse test) (parse else))]
+    [(list body 'if test 'then then)
+     (IfC (parse body) (parse test) (parse then))]
     [(list body 'where (list (list (list (? symbol? (? ValidSymbol? bindings)) ': ty) ':= exp) ...))
      (if (= (length bindings) (length (remove-duplicates bindings)))
            (AppC (LamC (cast bindings (Listof Symbol)) (parse-types (cast ty (Listof Sexp))) (parse body))
@@ -334,16 +334,28 @@
               (IfC (IdC 'x) (IdC 'y) (IdC 'z)))
 
 ;; Test for where clause
-(check-equal? (parse '((x) where ((y : num) := (10))))
-              (AppC (LamC (list 'y) (list (NumT)) (IdC 'x)) (list (NumC 10))))
+(check-equal? (parse '((x) where (((y : num) := (10)))))
+              (AppC
+               (LamC
+                '(y)
+                (list (NumT))
+                (AppC (IdC 'x) '()))
+               (list (AppC (NumC 10) '()))))
 
 ;; Test for lambda function
-(check-equal? (parse '((x : num) => x))
-              (LamC (list 'x) (list (NumT)) (IdC 'x)))
+(check-equal? (parse '(((x : num)) => x))
+              (LamC '(x) (list (NumT)) (IdC 'x)))
 
 ;; Test for recursive function
-(check-equal? (parse '(letrec f ((x : num) : num => x) in f))
-              (RecC 'f (list 'x) (list (NumT)) (IdC 'x) (NumT) (IdC 'f)))
+(check-equal? (parse '(letrec (f ((x : num)) : num => x) in f))
+              (RecC
+               'f
+               '(x)
+               (list (NumT))
+               (IdC 'x)
+               (NumT)
+               (IdC 'f))
+)
 
 ;; Test for begin expression
 (check-equal? (parse '(begin x y z)) (BegC (list (IdC 'x) (IdC 'y) (IdC 'z))))
